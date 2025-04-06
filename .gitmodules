@@ -1,0 +1,12 @@
+[submodule "fayt"]
+	path = fayt
+	url = https://github.com/ethan4984/fayt
+[submodule "frigg"]
+	path = frigg
+	url = https://github.com/managarm/frigg
+[submodule "subprojects/frigg"]
+	path = subprojects/frigg
+	url = https://github.com/managarm/frigg
+[submodule "liballoc"]
+	path = liballoc
+	url = https://github.com/blanham/liballoc
