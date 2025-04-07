@@ -59,6 +59,24 @@ struct FaytLock {
   struct spinlock lock_;
 };
 
+struct RandomGenerator {
+  uint32_t state[4];
+  uint32_t advance() {
+    uint32_t t = state[3];
+
+    uint32_t s = state[0];
+    state[3] = state[2];
+    state[2] = state[1];
+    state[1] = s;
+
+    t ^= t << 11;
+    t ^= t >> 8;
+    return state[0] = t ^ s ^ (s >> 19);
+  }
+  RandomGenerator() { arc4random_buf(state, sizeof(state)); }
+};
+thread_local RandomGenerator thread_rng{};
+
 static auto alloc = VirtualAllocator{};
 static auto pool = frg::slab_pool<VirtualAllocator, FaytLock>{alloc};
 static auto slab = frg::slab_allocator<VirtualAllocator, FaytLock>{&pool};
@@ -73,7 +91,7 @@ static void frg_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = slab.allocate(rand() % 256);
+      pool[idx] = slab.allocate(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -90,7 +108,7 @@ static void kmem_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = kmem_malloc(rand() % 256);
+      pool[idx] = kmem_malloc(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -107,7 +125,7 @@ static void mimalloc_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = mi_malloc(rand() % 256);
+      pool[idx] = mi_malloc(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -124,7 +142,7 @@ static void malloc_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = malloc(rand() % 256);
+      pool[idx] = malloc(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -144,7 +162,7 @@ static void fayt_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = fayt_alloc(rand() % 256);
+      pool[idx] = fayt_alloc(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -179,7 +197,7 @@ static void liballoc_bench() {
     int idx = 0;
 
     for (int i = 0; i < 0x1000; i++) {
-      pool[idx] = kmalloc(rand() % 256);
+      pool[idx] = kmalloc(thread_rng.advance() % 256);
       BARRIER(pool[idx]);
       idx++;
     }
@@ -197,6 +215,18 @@ static void run_bench(const char *name, void (*bench)(), int num_threads) {
 
   for (int i = 0; i < num_threads; i++) {
     threads[i] = std::thread(bench);
+
+    // Create a cpu_set_t object representing a set of CPUs. Clear it and mark
+    // only CPU i as set.
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(i, &cpuset);
+    int rc = pthread_setaffinity_np(threads[i].native_handle(),
+                                    sizeof(cpu_set_t), &cpuset);
+
+    if (rc != 0) {
+      std::cerr << "Error calling pthread_setaffinity_np: " << rc << std::endl;
+    }
   }
 
   for (int i = 0; i < num_threads; i++) {
@@ -221,6 +251,14 @@ int main(int argc, char **argv) {
 
   if (num_threads < 1) {
     printf("Invalid number of threads\n");
+    return 1;
+  }
+
+  int cpu_count = std::thread::hardware_concurrency();
+
+  if (num_threads > cpu_count) {
+    printf("Number of threads (%d) exceeds CPU count (%d)\n", num_threads,
+           cpu_count);
     return 1;
   }
 

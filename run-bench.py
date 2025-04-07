@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import subprocess
+import multiprocessing
 
 
 points = {}
@@ -27,7 +28,7 @@ def plot():
                         x.append(num_threads)
                         y.append(points[num_threads][benchname])
 
-                ax.plot(x, y, label=benchname)
+                ax.plot(x, y, label=benchname, linestyle='dotted')
                 ax.set_xlabel('Number of Threads')
                 ax.set_ylabel('Time (s)')
                 ax.set_title('Benchmark Results')
@@ -35,9 +36,12 @@ def plot():
                 plt.savefig('bench.png')
                 
 
+cpu_count = multiprocessing.cpu_count()
 
-for i in range(16):
-    run_bench(i+1)
+print(f"Running benchmarks with {cpu_count} threads")
+
+for i in range(1, multiprocessing.cpu_count() + 1):
+    run_bench(i)
 
 plot()
 
